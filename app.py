@@ -1,56 +1,97 @@
 import streamlit as st
 import pandas as pd
 import os
-import yaml
-from streamlit_authenticator import Authenticate
 
-# 🔹 Configuração da autenticação 🔹
-CONFIG = {
-    "credentials": {
-        "usernames": {}
-    },
-    "cookie": {
-        "expiry_days": 30,
-        "key": "random_key"
-    },
-    "preauthorized": {
-        "emails": []
-    }
-}
+# 🔹 Criar diretório de usuários
+USER_DATA_FILE = "users.csv"
+if not os.path.exists(USER_DATA_FILE):
+    pd.DataFrame(columns=["email", "username"]).to_csv(USER_DATA_FILE, index=False)
 
-# Criar autenticação
-authenticator = Authenticate(CONFIG["credentials"], CONFIG["cookie"]["key"], "app_name", CONFIG["cookie"]["expiry_days"])
+# 🔹 Função para verificar se usuário existe
+def user_exists(email):
+    users = pd.read_csv(USER_DATA_FILE)
+    return email in users["email"].values
 
-# Exibir formulário de login
-email, authentication_status, username = authenticator.login("Login", "main")
+# 🔹 Função para obter o username do usuário
+def get_username(email):
+    users = pd.read_csv(USER_DATA_FILE)
+    return users.loc[users["email"] == email, "username"].values[0] if user_exists(email) else None
 
-# Se usuário autenticado:
-if authentication_status:
-    st.sidebar.write(f"**Usuário:** {username}")
-    authenticator.logout("Sair", "sidebar")
+# 🔹 Função para registrar usuário
+def register_user(email, username):
+    users = pd.read_csv(USER_DATA_FILE)
+    if user_exists(email):
+        return False
+    new_user = pd.DataFrame([[email, username]], columns=["email", "username"])
+    users = pd.concat([users, new_user], ignore_index=True)
+    users.to_csv(USER_DATA_FILE, index=False)
+    return True
 
-    # Nome do arquivo de progresso do usuário
-    user_file = f"classificacoes_{username}.csv"
+# 🔹 Verificar sessão do usuário
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+    st.session_state.email = None
+    st.session_state.username = None
 
-    # 🔹 Carregar dados 🔹
+# 🔹 Tela de login e cadastro
+if not st.session_state.authenticated:
+    st.title("🔐 Acesso ao Sistema")
+    option = st.radio("Selecione uma opção:", ["Entrar", "Registrar"])
+
+    email = st.text_input("Email")
+    username = st.text_input("Nome de usuário") if option == "Registrar" else None
+
+    if st.button("Continuar"):
+        users = pd.read_csv(USER_DATA_FILE)
+        if option == "Registrar":
+            if register_user(email, username):
+                st.success("Registro bem-sucedido! Agora você pode acessar.")
+            else:
+                st.error("Este email já está cadastrado. Faça login.")
+        else:
+            if user_exists(email):
+                username = get_username(email)
+                st.session_state.authenticated = True
+                st.session_state.email = email
+                st.session_state.username = username
+                st.success(f"Bem-vindo, {username}!")
+                st.rerun()
+            else:
+                st.error("Usuário não encontrado. Registre-se primeiro.")
+else:
+    # 🔹 Logout
+    st.sidebar.write(f"👤 Usuário: {st.session_state.username}")
+    if st.sidebar.button("Sair"):
+        st.session_state.authenticated = False
+        st.session_state.email = None
+        st.session_state.username = None
+        st.rerun()
+
+    # 🔹 Nome do arquivo de progresso do usuário
+    user_file = f"classificacoes_{st.session_state.username}.csv"
     file_path = "amostra_1000_dados.csv"
+
+    # 🔹 Carregar os dados
     df = pd.read_csv(file_path)
 
     # Criar arquivo do usuário se não existir
     if not os.path.exists(user_file):
         df_user = df.copy()
-        df_user["Sent"] = df_user["Sent"].fillna("")
         df_user.to_csv(user_file, index=False)
     else:
         df_user = pd.read_csv(user_file)
 
-    # 🔹 Recuperar progresso 🔹
+    # 🔹 Criar coluna "Sent" se não existir
+    if "Sent" not in df_user.columns:
+        df_user["Sent"] = ""
+        df_user.to_csv(user_file, index=False)
+
+    # 🔹 Recuperar progresso
     if "index" not in st.session_state:
-        # Encontrar o primeiro índice não classificado
         textos_nao_classificados = df_user[df_user["Sent"] == ""].index
         st.session_state.index = textos_nao_classificados[0] if len(textos_nao_classificados) > 0 else len(df_user)
 
-    st.title(f"Classificação de Sentimentos ({username})")
+    st.title(f"Classificação de Sentimentos ({st.session_state.username})")
     st.write(f"Texto {st.session_state.index + 1} de {len(df_user)}")
 
     if st.session_state.index >= len(df_user):
@@ -67,27 +108,19 @@ if authentication_status:
         if st.button("Salvar e Próximo"):
             df_user.at[st.session_state.index, "Sent"] = sentimento
             df_user.to_csv(user_file, index=False)
-            
-            # Buscar próximo índice não classificado
+
             textos_nao_classificados = df_user[df_user["Sent"] == ""].index
             st.session_state.index = textos_nao_classificados[0] if len(textos_nao_classificados) > 0 else len(df_user)
-            
-            st.experimental_rerun()
 
-    # Mostrar progresso
+            st.rerun()
+
+    # 🔹 Mostrar progresso
     st.progress(st.session_state.index / len(df_user))
 
-    # Botão para baixar a classificação feita
+    # 🔹 Botão para baixar a classificação feita
     st.download_button(
         "Baixar minhas classificações",
         data=df_user.to_csv(index=False).encode("utf-8"),
-        file_name=f"classificacoes_{username}.csv",
+        file_name=f"classificacoes_{st.session_state.username}.csv",
         mime="text/csv"
     )
-
-# 🔹 Caso o login falhe 🔹
-elif authentication_status == False:
-    st.error("Email/senha incorretos. Tente novamente.")
-
-elif authentication_status == None:
-    st.warning("Por favor, faça login.")
