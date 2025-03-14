@@ -6,9 +6,16 @@ from streamlit_authenticator import Authenticate
 
 # 🔹 Configuração da autenticação 🔹
 CONFIG = {
-    "credentials": {},  # Login livre, qualquer usuário pode se cadastrar
-    "cookie": {"expiry_days": 30, "key": "random_key"},
-    "preauthorized": {"emails": []},  # Sem restrição de email
+    "credentials": {
+        "usernames": {}
+    },
+    "cookie": {
+        "expiry_days": 30,
+        "key": "random_key"
+    },
+    "preauthorized": {
+        "emails": []
+    }
 }
 
 # Criar autenticação
